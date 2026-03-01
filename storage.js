@@ -1,97 +1,86 @@
-const fs = require('fs/promises')
+const dns = require('dns')
+dns.setServers(['1.1.1.1', '1.0.0.1'])
 
-const employeesFilePath = 'employees.json'
-const shiftsFilePath = 'shifts.json'
-const assignmentsFilePath = 'assignments.json'
+const { MongoClient } = require('mongodb')
+require('dotenv').config()
 
-async function readArrayFile(filePath) {
-    try {
-        const raw = await fs.readFile(filePath, 'utf-8')
-        const data = JSON.parse(raw)
+let client = null
+let db = null
 
-        if (!Array.isArray(data)) {
-            return []
-        }
-        return data
-    } catch (err) {
-        return []
+async function getDb() {
+    if (db !== null) return db
+
+    const uri = process.env.MONGODB_URI
+    const dbName = process.env.DB_NAME || 'infs3201_winter2026'
+
+    if (!uri) {
+        throw new Error('MONGODB_URI is missing in .env')
     }
+
+    client = new MongoClient(uri, { serverSelectionTimeoutMS: 8000 })
+    await client.connect()
+    db = client.db(dbName)
+    return db
 }
 
-async function writeArrayFile(filePath, items) {
-    const text = JSON.stringify(items, null, 4)
-    await fs.writeFile(filePath, text, 'utf-8')
-}
+// ---------------- Employees ----------------
 
 async function getAllEmployees() {
-    return await readArrayFile(employeesFilePath)
+    const database = await getDb()
+    return await database.collection('employees')
+        .find({})
+        .sort({ employeeId: 1 })
+        .toArray()
 }
 
 async function findEmployeeById(employeeId) {
-    const target = String(employeeId).trim().toUpperCase()
-    const employees = await readArrayFile(employeesFilePath)
-
-    for (let i = 0; i < employees.length; i++) {
-        const e = employees[i]
-        const id = String(e.employeeId).trim().toUpperCase()
-        if (id === target) {
-            return e
-        }
-    }
-    return null
+    const database = await getDb()
+    const id = String(employeeId).trim().toUpperCase()
+    return await database.collection('employees').findOne({ employeeId: id })
 }
 
 async function insertEmployee(employee) {
-    const employees = await readArrayFile(employeesFilePath)
-    employees.push(employee)
-    await writeArrayFile(employeesFilePath, employees)
+    const database = await getDb()
+    const doc = {
+        employeeId: String(employee.employeeId).trim().toUpperCase(),
+        name: String(employee.name),
+        phone: String(employee.phone)
+    }
+    await database.collection('employees').insertOne(doc)
 }
 
-async function getAllShifts() {
-    return await readArrayFile(shiftsFilePath)
+async function updateEmployeeDetails(employeeId, name, phone) {
+    const database = await getDb()
+    const id = String(employeeId).trim().toUpperCase()
+
+    await database.collection('employees').updateOne(
+        { employeeId: id },
+        { $set: { name: String(name), phone: String(phone) } }
+    )
 }
+
+// ---------------- Shifts ----------------
 
 async function findShiftById(shiftId) {
-    const target = String(shiftId).trim().toUpperCase()
-    const shifts = await readArrayFile(shiftsFilePath)
-
-    for (let i = 0; i < shifts.length; i++) {
-        const s = shifts[i]
-        const id = String(s.shiftId).trim().toUpperCase()
-        if (id === target) {
-            return s
-        }
-    }
-    return null
+    const database = await getDb()
+    const id = String(shiftId).trim().toUpperCase()
+    return await database.collection('shifts').findOne({ shiftId: id })
 }
 
-async function getAllAssignments() {
-    return await readArrayFile(assignmentsFilePath)
-}
+// ---------------- Assignments (READ) ----------------
 
 async function findAssignmentsByEmployeeId(employeeId) {
-    const target = String(employeeId).trim().toUpperCase()
-    const assignments = await readArrayFile(assignmentsFilePath)
-
-    const out = []
-    for (let i = 0; i < assignments.length; i++) {
-        const a = assignments[i]
-        const id = String(a.employeeId).trim().toUpperCase()
-        if (id === target) {
-            out.push(a)
-        }
-    }
-    return out
+    const database = await getDb()
+    const id = String(employeeId).trim().toUpperCase()
+    return await database.collection('assignments').find({ employeeId: id }).toArray()
 }
 
 module.exports = {
     getAllEmployees,
     findEmployeeById,
     insertEmployee,
+    updateEmployeeDetails,
 
-    getAllShifts,
     findShiftById,
-
-    getAllAssignments,
     findAssignmentsByEmployeeId
 }
