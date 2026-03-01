@@ -1,5 +1,11 @@
 const storage = require('./storage')
 
+/**
+ * Generates the next employee ID in the format E### (example: E006).
+ *
+ * @param {Object[]} employees Array of employee objects.
+ * @returns {string} Next employee ID.
+ */
 function generateNextEmployeeId(employees) {
     let maxNum = 0
 
@@ -24,6 +30,12 @@ function generateNextEmployeeId(employees) {
     return 'E' + padded
 }
 
+/**
+ * Sorts schedule rows by (date, startTime) ascending using selection sort.
+ *
+ * @param {Object[]} rows Array of rows: {date,startTime,endTime}.
+ * @returns {void} No return value.
+ */
 function sortScheduleRows(rows) {
     for (let i = 0; i < rows.length; i++) {
         let minIndex = i
@@ -48,15 +60,33 @@ function sortScheduleRows(rows) {
     }
 }
 
+/**
+ * Returns all employees.
+ *
+ * @returns {Promise<Object[]>} Array of employees.
+ */
 async function listEmployees() {
     return await storage.getAllEmployees()
 }
 
+/**
+ * Returns a single employee by ID.
+ *
+ * @param {string} employeeId Employee ID.
+ * @returns {Promise<Object|null>} Employee object or null.
+ */
 async function getEmployeeById(employeeId) {
     const empId = String(employeeId).trim().toUpperCase()
     return await storage.findEmployeeById(empId)
 }
 
+/**
+ * Adds a new employee after validating name and phone (non-empty).
+ *
+ * @param {string} name Employee name.
+ * @param {string} phone Phone number.
+ * @returns {Promise<{ok:boolean,message:string}>} Result object.
+ */
 async function addEmployee(name, phone) {
     const cleanName = String(name).trim()
     const cleanPhone = String(phone).trim()
@@ -81,6 +111,14 @@ async function addEmployee(name, phone) {
     return { ok: true, message: 'Employee added...' }
 }
 
+/**
+ * Updates an employee's name and phone.
+ *
+ * @param {string} employeeId Employee ID.
+ * @param {string} name New name.
+ * @param {string} phone New phone.
+ * @returns {Promise<{ok:boolean,message:string}>} Result object.
+ */
 async function updateEmployeeDetails(employeeId, name, phone) {
     const empId = String(employeeId).trim().toUpperCase()
     const cleanName = String(name).trim()
@@ -95,6 +133,12 @@ async function updateEmployeeDetails(employeeId, name, phone) {
     return { ok: true, message: 'Employee updated' }
 }
 
+/**
+ * Returns schedule rows for a given employee.
+ *
+ * @param {string} employeeId Employee ID.
+ * @returns {Promise<{ok:boolean,rows:Object[]}>} Status and rows.
+ */
 async function getEmployeeSchedule(employeeId) {
     const empId = String(employeeId).trim().toUpperCase()
 
