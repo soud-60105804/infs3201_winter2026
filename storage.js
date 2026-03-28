@@ -1,19 +1,22 @@
 const dns = require('dns')
 dns.setServers(['1.1.1.1', '1.0.0.1'])
 
-const { MongoClient } = require('mongodb')
+const mongodb = require('mongodb')
+const { MongoClient } = mongodb
 require('dotenv').config()
 
 let client = null
 let db = null
 
 /**
- * Returns a connected MongoDB database instance (cached).
+ * Returns a connected MongoDB database instance.
  *
  * @returns {Promise<import('mongodb').Db>} MongoDB database instance.
  */
 async function getDb() {
-    if (db !== null) return db
+    if (db !== null) {
+        return db
+    }
 
     const uri = process.env.MONGODB_URI
     const dbName = process.env.DB_NAME || 'infs3201_winter2026'
@@ -29,86 +32,109 @@ async function getDb() {
 }
 
 /**
- * Gets all employees sorted by employeeId.
+ * Converts a string into a MongoDB ObjectId.
+ *
+ * @param {string} id Id string.
+ * @returns {import('mongodb').ObjectId|null} ObjectId or null if invalid.
+ */
+function makeObjectId(id) {
+    const cleanId = String(id).trim()
+
+    if (mongodb.ObjectId.isValid(cleanId) === false) {
+        return null
+    }
+
+    return new mongodb.ObjectId(cleanId)
+}
+
+/**
+ * Gets all employees sorted by name.
  *
  * @returns {Promise<Object[]>} Employees array.
  */
 async function getAllEmployees() {
     const database = await getDb()
+
     return await database.collection('employees')
         .find({})
-        .sort({ employeeId: 1 })
+        .sort({ name: 1 })
         .toArray()
 }
 
 /**
- * Finds a single employee by employeeId (case-insensitive).
+ * Finds a single employee by MongoDB _id.
  *
- * @param {string} employeeId Employee ID.
- * @returns {Promise<Object|null>} Employee object or null.
+ * @param {string} id Employee _id string.
+ * @returns {Promise<Object|null>} Employee document or null.
  */
-async function findEmployeeById(employeeId) {
+async function findEmployeeById(id) {
     const database = await getDb()
-    const id = String(employeeId).trim().toUpperCase()
-    return await database.collection('employees').findOne({ employeeId: id })
+    const objectId = makeObjectId(id)
+
+    if (objectId === null) {
+        return null
+    }
+
+    return await database.collection('employees').findOne({ _id: objectId })
 }
 
 /**
  * Inserts a new employee document.
  *
- * @param {{employeeId:string,name:string,phone:string}} employee Employee document.
- * @returns {Promise<void>} No return value.
+ * @param {{name:string,phone:string}} employee Employee document.
+ * @returns {Promise<import('mongodb').InsertOneResult>} Insert result.
  */
 async function insertEmployee(employee) {
     const database = await getDb()
+
     const doc = {
-        employeeId: String(employee.employeeId).trim().toUpperCase(),
-        name: String(employee.name),
-        phone: String(employee.phone)
+        name: String(employee.name).trim(),
+        phone: String(employee.phone).trim()
     }
-    await database.collection('employees').insertOne(doc)
+
+    return await database.collection('employees').insertOne(doc)
 }
 
 /**
- * Updates an employee's name and phone in MongoDB.
+ * Updates an employee's name and phone using MongoDB _id.
  *
- * @param {string} employeeId Employee ID.
+ * @param {string} id Employee _id string.
  * @param {string} name New name.
  * @param {string} phone New phone.
  * @returns {Promise<void>} No return value.
  */
-async function updateEmployeeDetails(employeeId, name, phone) {
+async function updateEmployeeDetails(id, name, phone) {
     const database = await getDb()
-    const id = String(employeeId).trim().toUpperCase()
+    const objectId = makeObjectId(id)
+
+    if (objectId === null) {
+        return
+    }
 
     await database.collection('employees').updateOne(
-        { employeeId: id },
-        { $set: { name: String(name), phone: String(phone) } }
+        { _id: objectId },
+        { $set: { name: String(name).trim(), phone: String(phone).trim() } }
     )
 }
 
 /**
- * Finds a shift by shiftId.
+ * Finds all shifts containing a given employee ObjectId.
  *
- * @param {string} shiftId Shift ID.
- * @returns {Promise<Object|null>} Shift object or null.
+ * @param {string} id Employee _id string.
+ * @returns {Promise<Object[]>} Shift documents.
  */
-async function findShiftById(shiftId) {
+async function findShiftsByEmployeeId(id) {
     const database = await getDb()
-    const id = String(shiftId).trim().toUpperCase()
-    return await database.collection('shifts').findOne({ shiftId: id })
-}
+    const objectId = makeObjectId(id)
 
-/**
- * Finds all assignments for a given employeeId.
- *
- * @param {string} employeeId Employee ID.
- * @returns {Promise<Object[]>} Assignment documents array.
- */
-async function findAssignmentsByEmployeeId(employeeId) {
-    const database = await getDb()
-    const id = String(employeeId).trim().toUpperCase()
-    return await database.collection('assignments').find({ employeeId: id }).toArray()
+    if (objectId === null) {
+        return []
+    }
+
+    return await database.collection('shifts')
+        .find({ employees: objectId })
+        .sort({ date: 1, startTime: 1 })
+        .toArray()
 }
 
 module.exports = {
@@ -116,6 +142,5 @@ module.exports = {
     findEmployeeById,
     insertEmployee,
     updateEmployeeDetails,
-    findShiftById,
-    findAssignmentsByEmployeeId
+    findShiftsByEmployeeId
 }

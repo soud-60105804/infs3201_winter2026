@@ -1,39 +1,9 @@
 const storage = require('./storage')
 
 /**
- * Generates the next employee ID in the format E### (example: E006).
+ * Sorts schedule rows by date then startTime using selection sort.
  *
- * @param {Object[]} employees Array of employee objects.
- * @returns {string} Next employee ID.
- */
-function generateNextEmployeeId(employees) {
-    let maxNum = 0
-
-    for (let i = 0; i < employees.length; i++) {
-        const e = employees[i]
-        const id = String(e.employeeId).trim().toUpperCase()
-
-        if (id.length === 4 && id[0] === 'E') {
-            const numPart = id.substring(1)
-            const parsed = Number(numPart)
-
-            if (Number.isNaN(parsed) === false) {
-                if (parsed > maxNum) {
-                    maxNum = parsed
-                }
-            }
-        }
-    }
-
-    const nextNum = maxNum + 1
-    const padded = String(nextNum).padStart(3, '0')
-    return 'E' + padded
-}
-
-/**
- * Sorts schedule rows by (date, startTime) ascending using selection sort.
- *
- * @param {Object[]} rows Array of rows: {date,startTime,endTime}.
+ * @param {Object[]} rows Array of rows.
  * @returns {void} No return value.
  */
 function sortScheduleRows(rows) {
@@ -61,105 +31,122 @@ function sortScheduleRows(rows) {
 }
 
 /**
+ * Adds a string id field for use in templates.
+ *
+ * @param {Object} employee Employee document.
+ * @returns {void} No return value.
+ */
+function attachDisplayId(employee) {
+    if (employee !== null && employee !== undefined) {
+        employee.id = String(employee._id)
+    }
+}
+
+/**
  * Returns all employees.
  *
  * @returns {Promise<Object[]>} Array of employees.
  */
 async function listEmployees() {
-    return await storage.getAllEmployees()
+    const employees = await storage.getAllEmployees()
+
+    for (let i = 0; i < employees.length; i++) {
+        attachDisplayId(employees[i])
+    }
+
+    return employees
 }
 
 /**
- * Returns a single employee by ID.
+ * Returns a single employee by MongoDB _id string.
  *
- * @param {string} employeeId Employee ID.
+ * @param {string} id Employee _id string.
  * @returns {Promise<Object|null>} Employee object or null.
  */
-async function getEmployeeById(employeeId) {
-    const empId = String(employeeId).trim().toUpperCase()
-    return await storage.findEmployeeById(empId)
+async function getEmployeeById(id) {
+    const employee = await storage.findEmployeeById(id)
+
+    if (employee !== null) {
+        attachDisplayId(employee)
+    }
+
+    return employee
 }
 
 /**
- * Adds a new employee after validating name and phone (non-empty).
+ * Adds a new employee after validating name and phone.
  *
  * @param {string} name Employee name.
  * @param {string} phone Phone number.
- * @returns {Promise<{ok:boolean,message:string}>} Result object.
+ * @returns {Promise<{ok:boolean,message:string,id:string}>} Result object.
  */
 async function addEmployee(name, phone) {
     const cleanName = String(name).trim()
     const cleanPhone = String(phone).trim()
 
     if (cleanName.length === 0) {
-        return { ok: false, message: 'Name cannot be empty' }
+        return { ok: false, message: 'Name cannot be empty', id: '' }
     }
+
     if (cleanPhone.length === 0) {
-        return { ok: false, message: 'Phone cannot be empty' }
+        return { ok: false, message: 'Phone cannot be empty', id: '' }
     }
 
-    const employees = await storage.getAllEmployees()
-    const nextId = generateNextEmployeeId(employees)
-
-    const newEmployee = {
-        employeeId: nextId,
+    const result = await storage.insertEmployee({
         name: cleanName,
         phone: cleanPhone
-    }
+    })
 
-    await storage.insertEmployee(newEmployee)
-    return { ok: true, message: 'Employee added...' }
+    return {
+        ok: true,
+        message: 'Employee added',
+        id: String(result.insertedId)
+    }
 }
 
 /**
  * Updates an employee's name and phone.
  *
- * @param {string} employeeId Employee ID.
+ * @param {string} id Employee _id string.
  * @param {string} name New name.
  * @param {string} phone New phone.
  * @returns {Promise<{ok:boolean,message:string}>} Result object.
  */
-async function updateEmployeeDetails(employeeId, name, phone) {
-    const empId = String(employeeId).trim().toUpperCase()
+async function updateEmployeeDetails(id, name, phone) {
     const cleanName = String(name).trim()
     const cleanPhone = String(phone).trim()
 
-    const employee = await storage.findEmployeeById(empId)
+    const employee = await storage.findEmployeeById(id)
     if (employee === null) {
         return { ok: false, message: 'Employee does not exist' }
     }
 
-    await storage.updateEmployeeDetails(empId, cleanName, cleanPhone)
+    await storage.updateEmployeeDetails(id, cleanName, cleanPhone)
     return { ok: true, message: 'Employee updated' }
 }
 
 /**
  * Returns schedule rows for a given employee.
  *
- * @param {string} employeeId Employee ID.
+ * @param {string} id Employee _id string.
  * @returns {Promise<{ok:boolean,rows:Object[]}>} Status and rows.
  */
-async function getEmployeeSchedule(employeeId) {
-    const empId = String(employeeId).trim().toUpperCase()
+async function getEmployeeSchedule(id) {
+    const employee = await storage.findEmployeeById(id)
 
-    const employee = await storage.findEmployeeById(empId)
     if (employee === null) {
         return { ok: false, rows: [] }
     }
 
-    const assignments = await storage.findAssignmentsByEmployeeId(empId)
+    const shifts = await storage.findShiftsByEmployeeId(id)
     const rows = []
 
-    for (let i = 0; i < assignments.length; i++) {
-        const a = assignments[i]
-        const shift = await storage.findShiftById(a.shiftId)
-        if (shift !== null) {
-            rows.push({
-                date: shift.date,
-                startTime: shift.startTime,
-                endTime: shift.endTime
-            })
-        }
+    for (let i = 0; i < shifts.length; i++) {
+        rows.push({
+            date: shifts[i].date,
+            startTime: shifts[i].startTime,
+            endTime: shifts[i].endTime
+        })
     }
 
     if (rows.length > 0) {
