@@ -24,21 +24,212 @@ function isValidObjectId(id) {
 }
 
 /**
- * Landing page route.
- * Displays all employees as links to their details pages.
+ * Reads one cookie value from the Cookie header.
+ *
+ * @param {import('express').Request} req Express request.
+ * @param {string} name Cookie name.
+ * @returns {string} Cookie value or empty string.
+ */
+function readCookie(req, name) {
+    const header = String(req.headers.cookie || '')
+    if (header.length === 0) {
+        return ''
+    }
+
+    const parts = header.split(';')
+
+    for (let i = 0; i < parts.length; i++) {
+        const piece = String(parts[i]).trim()
+        const eqIndex = piece.indexOf('=')
+
+        if (eqIndex !== -1) {
+            const key = piece.substring(0, eqIndex).trim()
+            const value = piece.substring(eqIndex + 1).trim()
+
+            if (key === name) {
+                return decodeURIComponent(value)
+            }
+        }
+    }
+
+    return ''
+}
+
+/**
+ * Returns true for public routes.
+ *
+ * @param {string} routePath Route path.
+ * @returns {boolean} True if public.
+ */
+function isPublicRoute(routePath) {
+    const cleanPath = String(routePath)
+
+    if (cleanPath === '/login') {
+        return true
+    }
+
+    if (cleanPath === '/logout') {
+        return true
+    }
+
+    return false
+}
+
+/**
+ * Loads the current session, if any, and extends it.
  *
  * @param {import('express').Request} req Express request.
  * @param {import('express').Response} res Express response.
- * @returns {Promise<void>} Renders the home view.
+ * @param {import('express').NextFunction} next Express next function.
+ * @returns {Promise<void>} Calls next.
+ */
+async function sessionLoaderMiddleware(req, res, next) {
+    req.isAuthenticated = false
+    req.username = ''
+    req.sessionKey = ''
+
+    const sessionKey = readCookie(req, 'sessionKey')
+
+    if (sessionKey.length === 0) {
+        return next()
+    }
+
+    const session = await business.getValidSession(sessionKey)
+
+    if (session === null) {
+        res.clearCookie('sessionKey')
+        return next()
+    }
+
+    const newExpiry = await business.extendSession(sessionKey)
+
+    res.cookie('sessionKey', sessionKey, {
+        httpOnly: true,
+        expires: newExpiry
+    })
+
+    req.isAuthenticated = true
+    req.username = String(session.username)
+    req.sessionKey = sessionKey
+
+    next()
+}
+
+/**
+ * Writes one security log entry for each request.
+ *
+ * @param {import('express').Request} req Express request.
+ * @param {import('express').Response} res Express response.
+ * @param {import('express').NextFunction} next Express next function.
+ * @returns {Promise<void>} Calls next.
+ */
+async function securityLogMiddleware(req, res, next) {
+    await business.logSecurityAccess(req.username, req.originalUrl, req.method)
+    next()
+}
+
+/**
+ * Protects all non-public routes.
+ *
+ * @param {import('express').Request} req Express request.
+ * @param {import('express').Response} res Express response.
+ * @param {import('express').NextFunction} next Express next function.
+ * @returns {void} Redirects or calls next.
+ */
+function authMiddleware(req, res, next) {
+    if (isPublicRoute(req.path) === true) {
+        return next()
+    }
+
+    if (req.isAuthenticated === true) {
+        return next()
+    }
+
+    res.redirect('/login?message=' + encodeURIComponent('Please log in first'))
+}
+
+app.use(sessionLoaderMiddleware)
+app.use(securityLogMiddleware)
+app.use(authMiddleware)
+
+/**
+ * Login page route.
+ *
+ * @param {import('express').Request} req Express request.
+ * @param {import('express').Response} res Express response.
+ * @returns {void} Renders login page.
+ */
+app.get('/login', function (req, res) {
+    if (req.isAuthenticated === true) {
+        return res.redirect('/')
+    }
+
+    res.render('login', {
+        message: String(req.query.message || '')
+    })
+})
+
+/**
+ * Login form submit route.
+ *
+ * @param {import('express').Request} req Express request.
+ * @param {import('express').Response} res Express response.
+ * @returns {Promise<void>} Redirects to login or home.
+ */
+app.post('/login', async function (req, res) {
+    const username = String(req.body.username || '').trim()
+    const password = String(req.body.password || '')
+
+    const result = await business.validateLogin(username, password)
+
+    if (result.ok === false) {
+        return res.redirect('/login?message=' + encodeURIComponent('Invalid username or password'))
+    }
+
+    const session = await business.createSession(result.username)
+
+    res.cookie('sessionKey', session.sessionKey, {
+        httpOnly: true,
+        expires: session.expiresAt
+    })
+
+    res.redirect('/')
+})
+
+/**
+ * Logout route.
+ *
+ * @param {import('express').Request} req Express request.
+ * @param {import('express').Response} res Express response.
+ * @returns {Promise<void>} Clears cookie and redirects.
+ */
+app.get('/logout', async function (req, res) {
+    if (req.sessionKey.length > 0) {
+        await business.deleteSession(req.sessionKey)
+    }
+
+    res.clearCookie('sessionKey')
+    res.redirect('/login?message=' + encodeURIComponent('You have been logged out'))
+})
+
+/**
+ * Landing page route.
+ *
+ * @param {import('express').Request} req Express request.
+ * @param {import('express').Response} res Express response.
+ * @returns {Promise<void>} Renders home view.
  */
 app.get('/', async function (req, res) {
     const employees = await business.listEmployees()
-    res.render('home', { employees: employees })
+
+    res.render('home', {
+        employees: employees,
+        username: req.username
+    })
 })
 
 /**
  * Employee details route.
- * Shows employee info and their shifts list.
  *
  * @param {import('express').Request} req Express request.
  * @param {import('express').Response} res Express response.
@@ -66,7 +257,8 @@ app.get('/employees/:id', async function (req, res) {
 
     res.render('employeeDetails', {
         employee: employee,
-        rows: rows
+        rows: rows,
+        username: req.username
     })
 })
 
@@ -89,7 +281,10 @@ app.get('/employees/:id/edit', async function (req, res) {
         return res.status(404).send('Employee not found')
     }
 
-    res.render('employeeEdit', { employee: employee })
+    res.render('employeeEdit', {
+        employee: employee,
+        username: req.username
+    })
 })
 
 /**
@@ -131,9 +326,41 @@ app.post('/employees/:id/edit', async function (req, res) {
  * @returns {void} No return value.
  */
 function startServer() {
-    app.listen(8000, function () {
-        console.log('Server running on http://127.0.0.1:8000')
+    app.listen(8001, function () {
+        console.log('AUTH SERVER running on http://127.0.0.1:8001')
     })
 }
+/**
+ * Protected employee photo route.
+ *
+ * @param {import('express').Request} req Express request.
+ * @param {import('express').Response} res Express response.
+ * @returns {Promise<void>} Sends photo file or 404.
+ */
+app.get('/employees/:id/photo', async function (req, res) {
+    const id = String(req.params.id).trim()
+
+    if (isValidObjectId(id) === false) {
+        return res.status(404).send('Employee not found')
+    }
+
+    const employee = await business.getEmployeeById(id)
+    if (employee === null) {
+        return res.status(404).send('Employee not found')
+    }
+
+    if (!employee.photoFilename) {
+        return res.status(404).send('Photo not found')
+    }
+
+    const fileName = path.basename(String(employee.photoFilename).trim())
+    const photoPath = path.join(__dirname, 'employee_photos', fileName)
+
+    res.sendFile(photoPath, function (err) {
+        if (err) {
+            res.status(404).send('Photo not found')
+        }
+    })
+})
 
 startServer()

@@ -1,3 +1,4 @@
+const crypto = require('crypto')
 const storage = require('./storage')
 
 /**
@@ -31,7 +32,7 @@ function sortScheduleRows(rows) {
 }
 
 /**
- * Adds a string id field for use in templates.
+ * Adds a string id field for template use.
  *
  * @param {Object} employee Employee document.
  * @returns {void} No return value.
@@ -40,6 +41,34 @@ function attachDisplayId(employee) {
     if (employee !== null && employee !== undefined) {
         employee.id = String(employee._id)
     }
+}
+
+/**
+ * Creates a SHA256 hash of a password.
+ *
+ * @param {string} password Plain password.
+ * @returns {string} SHA256 hash string.
+ */
+function hashPassword(password) {
+    return crypto.createHash('sha256').update(String(password)).digest('hex')
+}
+
+/**
+ * Creates a random session key.
+ *
+ * @returns {string} Session key.
+ */
+function createSessionKey() {
+    return crypto.randomBytes(32).toString('hex')
+}
+
+/**
+ * Returns a new expiry time 5 minutes from now.
+ *
+ * @returns {Date} Expiry date.
+ */
+function getNewExpiryDate() {
+    return new Date(Date.now() + 5 * 60 * 1000)
 }
 
 /**
@@ -156,10 +185,127 @@ async function getEmployeeSchedule(id) {
     return { ok: true, rows: rows }
 }
 
+/**
+ * Validates a login attempt.
+ *
+ * @param {string} username Username.
+ * @param {string} password Plain password.
+ * @returns {Promise<{ok:boolean,username:string}>} Validation result.
+ */
+async function validateLogin(username, password) {
+    const cleanUsername = String(username).trim()
+    const cleanPassword = String(password)
+
+    if (cleanUsername.length === 0 || cleanPassword.length === 0) {
+        return { ok: false, username: '' }
+    }
+
+    const user = await storage.findUserByUsername(cleanUsername)
+    if (user === null) {
+        return { ok: false, username: '' }
+    }
+
+    const hash = hashPassword(cleanPassword)
+    if (hash !== String(user.passwordHash)) {
+        return { ok: false, username: '' }
+    }
+
+    return { ok: true, username: cleanUsername }
+}
+
+/**
+ * Creates and stores a new session.
+ *
+ * @param {string} username Username.
+ * @returns {Promise<{sessionKey:string,expiresAt:Date}>} Session details.
+ */
+async function createSession(username) {
+    const sessionKey = createSessionKey()
+    const expiresAt = getNewExpiryDate()
+
+    await storage.insertSession({
+        sessionKey: sessionKey,
+        username: String(username).trim(),
+        expiresAt: expiresAt
+    })
+
+    return {
+        sessionKey: sessionKey,
+        expiresAt: expiresAt
+    }
+}
+
+/**
+ * Gets a valid session if it exists.
+ *
+ * @param {string} sessionKey Session key.
+ * @returns {Promise<Object|null>} Session document or null.
+ */
+async function getValidSession(sessionKey) {
+    await storage.deleteExpiredSessions()
+
+    const session = await storage.findSessionByKey(sessionKey)
+    if (session === null) {
+        return null
+    }
+
+    if (new Date(session.expiresAt).getTime() <= Date.now()) {
+        await storage.deleteSessionByKey(sessionKey)
+        return null
+    }
+
+    return session
+}
+
+/**
+ * Extends a session by another 5 minutes.
+ *
+ * @param {string} sessionKey Session key.
+ * @returns {Promise<Date>} New expiry date.
+ */
+async function extendSession(sessionKey) {
+    const expiresAt = getNewExpiryDate()
+    await storage.updateSessionExpiry(sessionKey, expiresAt)
+    return expiresAt
+}
+
+/**
+ * Deletes a session.
+ *
+ * @param {string} sessionKey Session key.
+ * @returns {Promise<void>} No return value.
+ */
+async function deleteSession(sessionKey) {
+    await storage.deleteSessionByKey(sessionKey)
+}
+
+/**
+ * Records a security access log entry.
+ *
+ * @param {string} username Username if known.
+ * @param {string} url Accessed URL.
+ * @param {string} method HTTP method.
+ * @returns {Promise<void>} No return value.
+ */
+async function logSecurityAccess(username, url, method) {
+    await storage.insertSecurityLog({
+        timestamp: new Date(),
+        username: String(username || ''),
+        url: String(url || ''),
+        method: String(method || '')
+    })
+}
+
 module.exports = {
     listEmployees,
     getEmployeeById,
     addEmployee,
     updateEmployeeDetails,
-    getEmployeeSchedule
+    getEmployeeSchedule,
+    validateLogin,
+    createSession,
+    getValidSession,
+    extendSession,
+    deleteSession,
+    logSecurityAccess
 }

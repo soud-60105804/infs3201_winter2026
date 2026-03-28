@@ -137,10 +137,120 @@ async function findShiftsByEmployeeId(id) {
         .toArray()
 }
 
+/**
+ * Finds a single user by username.
+ *
+ * @param {string} username Username.
+ * @returns {Promise<Object|null>} User document or null.
+ */
+async function findUserByUsername(username) {
+    const database = await getDb()
+    const cleanUsername = String(username).trim()
+
+    return await database.collection('users').findOne({ username: cleanUsername })
+}
+
+/**
+ * Inserts a session document.
+ *
+ * @param {{sessionKey:string,username:string,expiresAt:Date}} session Session document.
+ * @returns {Promise<void>} No return value.
+ */
+async function insertSession(session) {
+    const database = await getDb()
+
+    await database.collection('sessions').insertOne({
+        sessionKey: String(session.sessionKey),
+        username: String(session.username),
+        expiresAt: session.expiresAt
+    })
+}
+
+/**
+ * Finds a session by key.
+ *
+ * @param {string} sessionKey Session key.
+ * @returns {Promise<Object|null>} Session document or null.
+ */
+async function findSessionByKey(sessionKey) {
+    const database = await getDb()
+
+    return await database.collection('sessions').findOne({
+        sessionKey: String(sessionKey)
+    })
+}
+
+/**
+ * Updates a session expiry time.
+ *
+ * @param {string} sessionKey Session key.
+ * @param {Date} expiresAt New expiry date.
+ * @returns {Promise<void>} No return value.
+ */
+async function updateSessionExpiry(sessionKey, expiresAt) {
+    const database = await getDb()
+
+    await database.collection('sessions').updateOne(
+        { sessionKey: String(sessionKey) },
+        { $set: { expiresAt: expiresAt } }
+    )
+}
+
+/**
+ * Deletes a session by key.
+ *
+ * @param {string} sessionKey Session key.
+ * @returns {Promise<void>} No return value.
+ */
+async function deleteSessionByKey(sessionKey) {
+    const database = await getDb()
+
+    await database.collection('sessions').deleteOne({
+        sessionKey: String(sessionKey)
+    })
+}
+
+/**
+ * Deletes expired sessions.
+ *
+ * @returns {Promise<void>} No return value.
+ */
+async function deleteExpiredSessions() {
+    const database = await getDb()
+
+    await database.collection('sessions').deleteMany({
+        expiresAt: { $lte: new Date() }
+    })
+}
+
+/**
+ * Inserts a security log entry.
+ *
+ * @param {{timestamp:Date,username:string,url:string,method:string}} logEntry Log entry.
+ * @returns {Promise<void>} No return value.
+ */
+async function insertSecurityLog(logEntry) {
+    const database = await getDb()
+
+    await database.collection('security_log').insertOne({
+        timestamp: logEntry.timestamp,
+        username: String(logEntry.username),
+        url: String(logEntry.url),
+        method: String(logEntry.method)
+    })
+}
+
 module.exports = {
     getAllEmployees,
     findEmployeeById,
     insertEmployee,
     updateEmployeeDetails,
-    findShiftsByEmployeeId
+    findShiftsByEmployeeId,
+    findUserByUsername,
+    insertSession,
+    findSessionByKey,
+    updateSessionExpiry,
+    deleteSessionByKey,
+    deleteExpiredSessions,
+    insertSecurityLog
 }

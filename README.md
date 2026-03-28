@@ -1,2 +1,9 @@
-﻿INFS3201 Assignment 2
-Employee shift scheduler with daily hour limit.
+﻿# Assignment 4
+
+Test users:
+- admin1 / Password123
+- staff1 / Welcome123
+
+Run:
+- npm install
+- node server.js

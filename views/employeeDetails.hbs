@@ -12,6 +12,12 @@
     <p><b>Name:</b> {{employee.name}}</p>
     <p><b>Phone:</b> {{employee.phone}}</p>
 
+    {{#if employee.photoFilename}}
+        <p>
+            <img src="/employees/{{employee.id}}/photo" alt="Employee Photo" width="200">
+        </p>
+    {{/if}}
+
     <p>
         <a href="/employees/{{employee.id}}/edit">Edit Details</a> |
         <a href="/">Back</a>
