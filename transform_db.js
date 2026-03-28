@@ -76,22 +76,30 @@ async function embedEmployeesInShifts() {
 }
 
 /**
- * Removes old fields and drops the assignments collection.
+ * Removes old indexes, old fields, and drops the assignments collection.
  *
  * @returns {Promise<void>} No return value.
  */
 async function removeUnnecessaryItems() {
     const database = await getDb()
 
-    await database.collection('employees').updateMany(
-        {},
-        { $unset: { employeeId: '' } }
-    )
+    const employeeIndexes = await database.collection('employees').indexes()
+    for (let i = 0; i < employeeIndexes.length; i++) {
+        if (employeeIndexes[i].name === 'employeeId_1') {
+            await database.collection('employees').dropIndex('employeeId_1')
+            console.log('Dropped employees index: employeeId_1')
+            break
+        }
+    }
 
-    await database.collection('shifts').updateMany(
-        {},
-        { $unset: { shiftId: '' } }
-    )
+    const shiftIndexes = await database.collection('shifts').indexes()
+    for (let i = 0; i < shiftIndexes.length; i++) {
+        if (shiftIndexes[i].name === 'shiftId_1') {
+            await database.collection('shifts').dropIndex('shiftId_1')
+            console.log('Dropped shifts index: shiftId_1')
+            break
+        }
+    }
 
     const collections = await database.listCollections({}, { nameOnly: true }).toArray()
     let foundAssignments = false
@@ -102,6 +110,28 @@ async function removeUnnecessaryItems() {
             break
         }
     }
+
+    if (foundAssignments === true) {
+        const assignmentIndexes = await database.collection('assignments').indexes()
+
+        for (let i = 0; i < assignmentIndexes.length; i++) {
+            if (assignmentIndexes[i].name === 'employeeId_1_shiftId_1') {
+                await database.collection('assignments').dropIndex('employeeId_1_shiftId_1')
+                console.log('Dropped assignments index: employeeId_1_shiftId_1')
+                break
+            }
+        }
+    }
+
+    await database.collection('employees').updateMany(
+        {},
+        { $unset: { employeeId: '' } }
+    )
+
+    await database.collection('shifts').updateMany(
+        {},
+        { $unset: { shiftId: '' } }
+    )
 
     if (foundAssignments === true) {
         await database.collection('assignments').drop()
